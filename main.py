@@ -9,16 +9,6 @@ from oauth2client.file import Storage
 from oauth2client.tools import run_flow
 from helpers import Bot
 
-parser = argparse.ArgumentParser(description='Slack MusicBot to automatically aggregate playlists based on user-submitted tracks')
-parser.add_argument('-cs','--client_secrets', help='"Client Secrets" filepath containing YouTube auth information', required=True)
-parser.add_argument('-s','--slack_token', help='Slack Auth Token', required=True)
-parser.add_argument('-sa', '--spotify_auth', help='Spotify authentication information filepath', required=True)
-args = parser.parse_args()
-
-CLIENT_SECRETS_FILE = args.client_secrets
-SPOTIFY_AUTH_PATH = args.spotify_auth
-SLACK_TOKEN = args.slack_token
-
 CHANGELOG_DIR = 'changelogs/'
 
 YOUTUBE_READ_WRITE_SCOPE = "https://www.googleapis.com/auth/youtube"
@@ -57,10 +47,24 @@ def get_authenticated_service():
 
     return build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, http=credentials.authorize(httplib2.Http()))
 
-carry_on = True
-while carry_on:
-    try:
-        slack = Bot(SLACK_TOKEN, get_authenticated_service(), SPOTIFY_AUTH_PATH)
-        slack.start()
-    except ConnectionResetError:
-        print('Thing dun broke. Trying it again.')
+if __name__ == '__main__':
+
+    parser = argparse.ArgumentParser(
+        description='Slack MusicBot to automatically aggregate playlists based on user-submitted tracks')
+    parser.add_argument('-cs', '--client_secrets', help='"Client Secrets" filepath containing YouTube auth information',
+                        required=True)
+    parser.add_argument('-s', '--slack_token', help='Slack Auth Token', required=True)
+    parser.add_argument('-sa', '--spotify_auth', help='Spotify authentication information filepath', required=True)
+    args = parser.parse_args()
+
+    CLIENT_SECRETS_FILE = args.client_secrets
+    SPOTIFY_AUTH_PATH = args.spotify_auth
+    SLACK_TOKEN = args.slack_token
+
+    carry_on = True
+    while carry_on:
+        try:
+            slack = Bot(SLACK_TOKEN, get_authenticated_service(), SPOTIFY_AUTH_PATH)
+            slack.start()
+        except ConnectionResetError:
+            print('Thing dun broke. Trying it again.')

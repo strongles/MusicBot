@@ -1,7 +1,7 @@
 {
-  "username": "strongohench",
-  "scope": "user-library-modify playlist-read-private playlist-modify-private playlist-modify-public",
-  "client_secret": "9767c7c2e030437d8a2557e4e8e9e009",
-  "client_id": "8a041320bce1457b81085baeaf5166b1",
-  "redirect_uri": "http://127.0.0.1"
+  "username": "",
+  "scope": "",
+  "client_secret": "",
+  "client_id": "",
+  "redirect_uri": ""
 }
