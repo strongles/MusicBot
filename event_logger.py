@@ -37,7 +37,7 @@ class Logger:
         Prints server logging on attempted song addition when song already exists in playlist.
         """
         print('Song {title} already in playlist {playlist_id}, adding has been skipped.'
-              .format(title=song,
+              .format(title=song.title,
                       playlist_id=playlist_id))
         pass
 
