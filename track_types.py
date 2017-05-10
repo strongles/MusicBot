@@ -31,3 +31,13 @@ class SpotifyTrack(Track):
     def __init__(self, track_id, track_title, username):
         super().__init__(track_id, track_title, username)
         self.link = 'https://open.spotify.com/track/{}'.format(self.id)
+
+class GooglePlayTrack(Track):
+    """
+    Class designed to hold the pertinent details relating to a Google Play Music track (either one that has been read 
+    in from user submission or parsed from a search result
+    """
+
+    def __init__(self, track_id, track_title, username):
+        super().__init__(track_id, track_title, username)
+        self.link = 'https://play.google.com/music/m/{}'.format(self.id)

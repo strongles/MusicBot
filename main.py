@@ -62,18 +62,20 @@ if __name__ == '__main__':
                         required=True)
     parser.add_argument('-s', '--slack_token', help='Slack Auth Token', required=True)
     parser.add_argument('-sa', '--spotify_auth', help='Spotify authentication information filepath', required=True)
+    parser.add_argument('-pa', '--play_auth', help='Google Play Music login information')
 
     args = parser.parse_args()
 
     client_secrets_file = args.client_secrets
     spotify_auth_path = args.spotify_auth
     slack_token = args.slack_token
+    play_login_file = args.play_auth
 
     carry_on = True
 
     while carry_on:
         try:
-            slack = MusicBot(slack_token, get_authenticated_service(client_secrets_file), spotify_auth_path)
+            slack = MusicBot(slack_token, get_authenticated_service(client_secrets_file), spotify_auth_path, play_login_file)
             slack.start()
         except ConnectionResetError:
             print('Thing dun broke. Trying it again.')

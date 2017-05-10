@@ -1,14 +1,15 @@
 from slackclient import SlackClient
-from auth_data import SpotifyAuthData
+from auth_data import SpotifyAuthData, PlayLoginData
 from helpers import run_once
 from re import sub as regex_substitute
-from track_types import SpotifyTrack, YoutubeVideo
+from track_types import SpotifyTrack, YoutubeVideo, GooglePlayTrack
 from spotipy.client import SpotifyException
 from slack_objects import SlackEvent
 from os import listdir
 from websocket import WebSocketConnectionClosedException
 from spotipy import Spotify, util
 from event_logger import Logger
+from gmusicapi import MobileClient
 
 
 class MusicBot:
@@ -312,12 +313,14 @@ class MusicBot:
                     self.log_event(event_json)
                     for attachment in event.message.attachments:
                         if attachment.service_name is not None:
-                            if attachment.service_name == 'YouTube':
-                                return YoutubeVideo(attachment.id, attachment.title,
+                            if attachment.service_name in self.service_map and attachment.id is not None:
+                                return self.service_map[attachment.service_name](attachment.id, attachment.title,
                                                     self.get_username(event.message.user))
+                            '''
                             elif attachment.service_name == 'Spotify' and attachment.id is not None:
                                 return SpotifyTrack(attachment.id, attachment.title,
                                                     self.get_username(event.message.user))
+                            '''
 
     def videos_in_playlist(self, playlist):
         """
@@ -438,6 +441,37 @@ class MusicBot:
         self.post_reply(track.link, event.channel, event.message.timestamp)
         # self.api_call('chat.postMessage', thread_ts=event.message.timestamp, channel=event.channel, text=track.link)
 
+    def treat_song(self, found_song, source_event):
+        if isinstance(found_song, YoutubeVideo):
+            self.add_video_to_playlist(found_song, slack_event)
+            attempt_successful = False
+            track = None
+            while not attempt_successful:
+                try:
+                    track = self.search_spotify_for_youtube_video(found_song)
+                    attempt_successful = True
+                except SpotifyException:
+                    self.spotify_service = self.get_spotify_service(self.spotify_auth_data)
+            if track is not None:
+                self.add_track_to_playlist(track, slack_event)
+                self.reply_with_cross_searched_link(slack_event, track)
+            else:
+                pass
+                #self.mark_found_song_as_unable_to_be_found(slack_event.channel,
+                 #                                    slack_event.message.timestamp, 'yt')
+        elif isinstance(found_song, SpotifyTrack):
+            self.add_track_to_playlist(found_song, slack_event)
+            video = self.search_youtube_for_spotify_track(found_song)
+            if video is not None:
+                self.add_video_to_playlist(video, slack_event)
+                self.reply_with_cross_searched_link(slack_event, video)
+
+            else:
+                self.mark_song_as_unable_to_be_found(slack_event.channel,
+                                                     slack_event.message.timestamp, 'spot')
+        else:
+            self.logger.unrecognised_service('Unknown')
+
     def start(self):
         """
         Main loop function to listen for events from whatever channels the Bot is a member of (includes private message 
@@ -456,34 +490,7 @@ class MusicBot:
                             slack_event = SlackEvent(event)
                             song = self.scan_for_relevant_attachment(event)
                             if song is not None:
-                                if isinstance(song, YoutubeVideo):
-                                    self.add_video_to_playlist(song, slack_event)
-                                    attempt_successful = False
-                                    track = None
-                                    while not attempt_successful:
-                                        try:
-                                            track = self.search_spotify_for_youtube_video(song)
-                                            attempt_successful = True
-                                        except SpotifyException:
-                                            self.spotify_service = self.get_spotify_service(self.spotify_auth_data)
-                                    if track is not None:
-                                        self.add_track_to_playlist(track, slack_event)
-                                        self.reply_with_cross_searched_link(slack_event, track)
-                                    else:
-                                        self.mark_song_as_unable_to_be_found(slack_event.channel,
-                                                                             slack_event.message.timestamp, 'yt')
-                                elif isinstance(song, SpotifyTrack):
-                                    self.add_track_to_playlist(song, slack_event)
-                                    video = self.search_youtube_for_spotify_track(song)
-                                    if video is not None:
-                                        self.add_video_to_playlist(video, slack_event)
-                                        self.reply_with_cross_searched_link(slack_event, video)
-
-                                    else:
-                                        self.mark_song_as_unable_to_be_found(slack_event.channel,
-                                                                             slack_event.message.timestamp, 'spot')
-                                else:
-                                    self.logger.unrecognised_service('Unknown')
+                                self.treat_song(song, slack_event)
 
                             elif 'type' in event:
                                 if event['type'] == 'message':
@@ -534,13 +541,29 @@ class MusicBot:
 
         return service
 
-    def __init__(self, token, youtube, spotify_auth_path):
+    @staticmethod
+    def get_play_service(login_information):
+        play_api = MobileClient()
+        if play_api.login(login_information.username, login_information.password, MobileClient.FROM_MAC_ADDRESS)
+            return play_api
+        else:
+            raise Exception('Unable to acquire Google Play Music servi')
+
+
+    def __init__(self, token, youtube, spotify_auth_path, play_login_file):
         self.slack_service = SlackClient(token)
         self.youtube_service = youtube
         self.spotify_auth_data = SpotifyAuthData(spotify_auth_path)
+        self.play_auth_data = PlayLoginData(play_login_file)
         self.spotify_service = self.get_spotify_service(self.spotify_auth_data)
+        self.play_service = self.get_play_service(self.play_auth_data)
         self.default_channel = 'C1WV7ME66'
         self.default_changelog_location = 'changelogs/'
         self.logger = Logger()
         self.youtube_playlist = 'PLDQ8Lg2Wj2nGKAL_7nLp8ELghxJgxVdRM'
         self.spotify_playlist = '3RBeSdvsH57tbsqNZHS44A'
+        self.service_map = {
+            'Spotify': SpotifyTrack,
+            'YouTube': YoutubeVideo,
+            'play.google.com': GooglePlayTrack
+        }
