@@ -325,54 +325,8 @@ class MusicBot:
                                                     self.get_username(event.message.user))
                             '''
 
-    def videos_in_playlist(self, playlist):
-        """
-        Retrieves list of all videos currently present in the Youtube playlist. Used to prevent attempting to add 
-        duplicates.
-        """
-        video_request = self.youtube_service.playlistItems().list(
-            part="snippet", playlistId=playlist, maxResults=50
-        )
 
-        video_list = []
 
-        while video_request:
-            video_query_return = video_request.execute()
-            video_response = video_query_return['items']
-            for video in video_response:
-                video_list.append(video['snippet']['resourceId']['videoId'])
-                pass
-
-            video_request = self.youtube_service.playlistItems().list_next(
-                video_request, video_query_return
-            )
-        return video_list
-
-    def tracks_in_playlist(self, playlist):
-        """
-        Retrieves list of all tracks currently present in the Spotify playlist. Used to prevent attempting to add 
-        duplicates.
-        """
-        track_list = []
-        attempt_successful = False
-        while not attempt_successful:
-            try:
-                playlist_tracks = self.spotify_service.user_playlist('strongohench', playlist, fields='tracks, next')[
-                    'tracks']
-                tracks = playlist_tracks['items']
-                for track in tracks:
-                    track_list.append(track['track']['id'])
-                    pass
-                while playlist_tracks['next']:
-                    playlist_tracks = self.spotify_service.next(playlist_tracks)
-                    tracks = playlist_tracks['items']
-                    for track in tracks:
-                        track_list.append(track['track']['id'])
-                        pass
-                attempt_successful = True
-            except SpotifyException:
-                self.spotify_service = self.get_spotify_service(self.spotify_auth_data)
-        return track_list
 
     def add_video_to_playlist(self, video, event, playlist='PLDQ8Lg2Wj2nGKAL_7nLp8ELghxJgxVdRM'):
         """
@@ -398,25 +352,7 @@ class MusicBot:
             self.mark_song_as_already_existing(event.channel, event.message.timestamp, 'yt')
             self.logger.song_already_exists(video, playlist)
 
-    def add_track_to_playlist(self, track, event, playlist='3RBeSdvsH57tbsqNZHS44A'):
-        """
-        Adds the supplied track to the playlist (if not already present).
-        """
-        attempt_successful = False
-        existing_tracks = []
-        while not attempt_successful:
-            try:
-                existing_tracks = self.tracks_in_playlist(playlist)
-                attempt_successful = True
-            except SpotifyException:
-                self.spotify_service = self.get_spotify_service(self.spotify_auth_data)
-        if track.id not in existing_tracks:
-            self.spotify_service.user_playlist_add_tracks('strongohench', playlist, [track.id])
-            self.logger.song_added(track, playlist)
-            self.mark_message_as_added_to_playlist(event.channel, event.message.timestamp, 'spot')
-        else:
-            self.mark_song_as_already_existing(event.channel, event.message.timestamp, 'spot')
-            self.logger.song_already_exists(track, playlist)
+
 
     def print_newest_unprinted_changelog(self, path):
         """
