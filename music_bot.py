@@ -313,9 +313,12 @@ class MusicBot:
                     self.log_event(event_json)
                     for attachment in event.message.attachments:
                         if attachment.service_name is not None:
-                            if attachment.service_name in self.service_map and attachment.id is not None:
-                                return self.service_map[attachment.service_name](attachment.id, attachment.title,
-                                                    self.get_username(event.message.user))
+                            if attachment.service_name in self.track_type_map and attachment.id is not None:
+                                relevant_track_type = self.track_type_map[attachment.service_name]
+                                return relevant_track_type(attachment.id,
+                                                           attachment.title,
+                                                           self.get_username(event.message.user),
+                                                           self.service_map[relevant_track_type])
                             '''
                             elif attachment.service_name == 'Spotify' and attachment.id is not None:
                                 return SpotifyTrack(attachment.id, attachment.title,
@@ -562,8 +565,13 @@ class MusicBot:
         self.logger = Logger()
         self.youtube_playlist = 'PLDQ8Lg2Wj2nGKAL_7nLp8ELghxJgxVdRM'
         self.spotify_playlist = '3RBeSdvsH57tbsqNZHS44A'
-        self.service_map = {
+        self.track_type_map = {
             'Spotify': SpotifyTrack,
             'YouTube': YoutubeVideo,
             'play.google.com': GooglePlayTrack
+        }
+        self.service_map = {
+            SpotifyTrack: self.spotify_service,
+            YoutubeVideo: self.youtube_service,
+            GooglePlayTrack: self.play_service
         }
