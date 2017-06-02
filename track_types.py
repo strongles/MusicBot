@@ -4,6 +4,11 @@
 from services import GetSpotifyService
 from spotipy import SpotifyException
 
+class TrackNotFoundException(Exception):
+    """
+    Raise to indicate failure to find a relevant track in the service self-search
+    """
+
 class Track:
     """
     Parent class from which to inherit the base fields required for the functionality provided by the bot
@@ -13,6 +18,7 @@ class Track:
     def __init__(self, track_id, title, username, service, playlist):
         self.id = track_id
         self.title = title
+        self.artist = ''
         self.added_by = username
         self.link = ''
         self.service = service
@@ -20,13 +26,31 @@ class Track:
         self.playlist_id = playlist
 
 
-    def add_self_to_own_service(self):
-        raise NotImplementedError
-
     def get_own_current_playlist(self):
         raise NotImplementedError
 
+    def search_own_service_for_track_title(self):
+        raise NotImplementedError
 
+    def add_self_to_own_service(self):
+        raise NotImplementedError
+
+    def add_self_to_own_playlist(self):
+        """
+        Generic method utilising the other overridden methods for an instance of this class to add itself to its own 
+        service's playlist.
+        :return: True / False, indicating whether the track has been successfully added to the playlist, or whether it 
+        has was already present and therefore did not need to be added.
+        """
+        if self.id is None:
+            if not self.search_own_service_for_track_title():
+                raise TrackNotFoundException
+        playlist = self.get_own_current_playlist()
+        if self.id not in playlist:
+            self.add_self_to_own_service()
+            return True
+        else:
+            return False
 
 class YoutubeVideo(Track):
     """
@@ -37,19 +61,21 @@ class YoutubeVideo(Track):
     def __init__(self, video_id, video_title, username, service, playlist='DEFAULT'):
         # TODO: Make playlist IDs gettable from a config file / create a playlist with a set name if doesn't exist to add to ad infinitum
         super().__init__(video_id, video_title, username, service, playlist)
-        self.link = 'https://www.youtube.com/watch?v={}'.format(self.id)
+        if video_id is not None:
+            self.format_link()
         self.service_name = 'YouTube'
 
-    def get_own_current_playlist(self):
-        return self.videos_in_playlist(self.playlist_id)
+    def format_link(self):
+        self.link = 'https://www.youtube.com/watch?v={}'.format(self.id)self.link = 'https://www.youtube.com/watch?v={}'.format(self.id)
 
-    def videos_in_playlist(self, playlist):
+    def get_own_current_playlist(self):
         """
         Retrieves list of all videos currently present in the Youtube playlist. Used to prevent attempting to add 
         duplicates.
+        :return: List of all of the unique IDs of the videos currently in the playlist
         """
         video_request = self.service.playlistItems().list(
-            part="snippet", playlistId=playlist, maxResults=50
+            part="snippet", playlistId=self.playlist_id, maxResults=50
         )
 
         video_list = []
@@ -66,34 +92,50 @@ class YoutubeVideo(Track):
             )
         return video_list
 
+    def search_own_service_for_track_title(self):
+        """
+        Performs a search of the YouTube service based on the track information held in the local variables
+        :return: True if a track has been successfully found, otherwise False
+        """
+
+        search_term = '{} {}'.format(self.title, self.artist)
+
+        search_response = self.service.search().list(
+            q=search_term,
+            part='id,snippet',
+            maxResults=10
+        ).execute()
+
+        for search_result in search_response.get('items', []):
+            if search_result['id']['kind'] == 'youtube#video':
+                self.id = search_result['id']['videoId']
+                self.title = search_result['snippet']['title']
+                self.format_link()
+                return True
+
+        return False
 
     def add_self_to_own_service(self):
         """
-        Adds the supplied video to the playlist (if not already present).
-        Return is success or failure of addition
-        This build assumes an unsuccessful addition is indicative of the track already existing in the playlist
+        Barebones call to the YouTube API to add the currently held track to the playlist.
+        The assumption is made that any checks should have been performed before now in terms of the correctness of the 
+        held data
         """
-        existing_videos = self.get_own_current_playlist()
-        if self.id not in existing_videos:
-            self.service.playlistItems().insert(
-                part='snippet',
-                body={
-                    'snippet': {
-                        'playlistId': self.playlist_id,
-                        'resourceId': {
-                            'kind': 'youtube#video',
-                            'videoId': self.id
-                        }
-                    }
+
+        add_action_body = \
+        {
+            'snippet':
+            {
+                'playlistId': self.playlist_id,
+                'resourceId':
+                {
+                    'kind': 'youtube#video',
+                    'videoId': self.id
                 }
-            ).execute()
-            return True
-            #self.logger.song_added(video, playlist)
-            #self.mark_message_as_added_to_playlist(event.channel, event.message.timestamp, 'yt')
-        else:
-            return False
-            #self.mark_song_as_already_existing(event.channel, event.message.timestamp, 'yt')
-            #self.logger.song_already_exists(video, playlist)
+            }
+        }
+
+        self.service.playlistItems().insert(part='snippet', body=add_action_body).execute()
 
 
 class SpotifyTrack(Track):
@@ -114,6 +156,7 @@ class SpotifyTrack(Track):
         """
         Retrieves list of all tracks currently present in the Spotify playlist. Used to prevent attempting to add 
         duplicates.
+        :return: List of unique track IDs currently present in the playlist
         """
         track_list = []
         attempt_successful = False
@@ -165,8 +208,8 @@ class GooglePlayTrack(Track):
     Class designed to hold the pertinent details relating to a Google Play Music track (either one that has been read 
     in from user submission or parsed from a search result
     """
-
-    def __init__(self, track_id, track_title, username, playlist='DEFAULT'):
-        super().__init__(track_id, track_title, username, playlist)
+    # TODO: Implement the full range of functionality for Google Play in line with the others
+    def __init__(self, track_id, track_title, username, service, playlist='DEFAULT'):
+        super().__init__(track_id, track_title, username, service, playlist)
         self.link = 'https://play.google.com/music/m/{}'.format(self.id)
         self.service_name = 'play.google.com'

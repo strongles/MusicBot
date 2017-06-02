@@ -327,7 +327,7 @@ class MusicBot:
 
 
 
-
+    '''
     def add_video_to_playlist(self, video, event, playlist='PLDQ8Lg2Wj2nGKAL_7nLp8ELghxJgxVdRM'):
         """
         Adds the supplied video to the playlist (if not already present).
@@ -351,7 +351,7 @@ class MusicBot:
         else:
             self.mark_song_as_already_existing(event.channel, event.message.timestamp, 'yt')
             self.logger.song_already_exists(video, playlist)
-
+    '''
 
 
     def print_newest_unprinted_changelog(self, path):
@@ -381,8 +381,9 @@ class MusicBot:
         # self.api_call('chat.postMessage', thread_ts=event.message.timestamp, channel=event.channel, text=track.link)
 
     def treat_song(self, found_song, source_event):
+        '''
         if isinstance(found_song, YoutubeVideo):
-            self.add_video_to_playlist(found_song, slack_event)
+            self.add_video_to_playlist(found_song, source_event)
             attempt_successful = False
             track = None
             while not attempt_successful:
@@ -392,24 +393,28 @@ class MusicBot:
                 except SpotifyException:
                     self.spotify_service = self.get_spotify_service(self.spotify_auth_data)
             if track is not None:
-                self.add_track_to_playlist(track, slack_event)
-                self.reply_with_cross_searched_link(slack_event, track)
+                self.add_track_to_playlist(track, source_event)
+                self.reply_with_cross_searched_link(source_event, track)
             else:
                 pass
-                #self.mark_found_song_as_unable_to_be_found(slack_event.channel,
-                 #                                    slack_event.message.timestamp, 'yt')
+                #self.mark_found_song_as_unable_to_be_found(source_event.channel,
+                 #                                    source_event.message.timestamp, 'yt')
         elif isinstance(found_song, SpotifyTrack):
-            self.add_track_to_playlist(found_song, slack_event)
+            self.add_track_to_playlist(found_song, source_event)
             video = self.search_youtube_for_spotify_track(found_song)
             if video is not None:
-                self.add_video_to_playlist(video, slack_event)
-                self.reply_with_cross_searched_link(slack_event, video)
+                self.add_video_to_playlist(video, source_event)
+                self.reply_with_cross_searched_link(source_event, video)
 
             else:
-                self.mark_song_as_unable_to_be_found(slack_event.channel,
-                                                     slack_event.message.timestamp, 'spot')
+                self.mark_song_as_unable_to_be_found(source_event.channel,
+                                                     source_event.message.timestamp, 'spot')
         else:
             self.logger.unrecognised_service('Unknown')
+        '''
+
+        found_song.add_self_to_own_service()
+
 
     def start(self):
         """
