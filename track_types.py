@@ -1,13 +1,17 @@
 # Todo: implement an "add self to own service playlist" function on each TrackType
-# Todo: TrackTypes should hold a copy (reference technically) of their relevant service to perform these kinds of actions with
+# Todo: TrackTypes should hold a copy (reference technically) of their relevant service to perform these kinds of
+# actions with
 
 from services import GetSpotifyService
 from spotipy import SpotifyException
+from re import sub as regex_substitute
+
 
 class TrackNotFoundException(Exception):
     """
     Raise to indicate failure to find a relevant track in the service self-search
     """
+
 
 class Track:
     """
@@ -18,13 +22,11 @@ class Track:
     def __init__(self, track_id, title, username, service, playlist):
         self.id = track_id
         self.title = title
-        self.artist = ''
         self.added_by = username
         self.link = ''
         self.service = service
         self.service_name = ''
         self.playlist_id = playlist
-
 
     def get_own_current_playlist(self):
         raise NotImplementedError
@@ -52,6 +54,7 @@ class Track:
         else:
             return False
 
+
 class YoutubeVideo(Track):
     """
     Class designed to hold the pertinent details relating to a YouTube video (either one that has been read in from user
@@ -59,14 +62,15 @@ class YoutubeVideo(Track):
     """
 
     def __init__(self, video_id, video_title, username, service, playlist='DEFAULT'):
-        # TODO: Make playlist IDs gettable from a config file / create a playlist with a set name if doesn't exist to add to ad infinitum
+        # TODO: Make playlist IDs gettable from a config file / create a playlist with a set name if doesn't exist to
+        # add to ad infinitum
         super().__init__(video_id, video_title, username, service, playlist)
         if video_id is not None:
             self.format_link()
         self.service_name = 'YouTube'
 
     def format_link(self):
-        self.link = 'https://www.youtube.com/watch?v={}'.format(self.id)self.link = 'https://www.youtube.com/watch?v={}'.format(self.id)
+        self.link = 'https://www.youtube.com/watch?v={}'.format(self.id)
 
     def get_own_current_playlist(self):
         """
@@ -92,13 +96,14 @@ class YoutubeVideo(Track):
             )
         return video_list
 
+    @property
     def search_own_service_for_track_title(self):
         """
         Performs a search of the YouTube service based on the track information held in the local variables
         :return: True if a track has been successfully found, otherwise False
         """
 
-        search_term = '{} {}'.format(self.title, self.artist)
+        search_term = self.title
 
         search_response = self.service.search().list(
             q=search_term,
@@ -144,15 +149,68 @@ class SpotifyTrack(Track):
     submission or parsed from a search result
     """
 
+    @staticmethod
+    def format_spotify_search_string(search_string):
+        """
+        Strip out anything between square brackets, as it's usually shite.
+        Clear out any sets of parentheses which have certain keywords in to avoid fouling the Spotify search
+        (But not clear everything in brackets, due to some tracks featuring other artists etc)
+        :return: Search string formatted to be suitable to provide to a Spotify track search
+        """
+        search_string = search_string.lower()
+        search_string = regex_substitute(r' *\[[^)]*\] *', '', search_string)
+        search_string = regex_substitute(r'\(.*official.*\)', '', search_string)
+        search_string = regex_substitute(r'\(.*lyric.*\)', '', search_string)
+        search_string = regex_substitute(r'\(.*new.*\)', '', search_string)
+        return search_string
+
+    def search_own_service_for_track_title(self):
+        """
+        Performs cross-searching of Spotify when the user has supplied a Youtube link
+        :return: True / False for success / failure of finding a relevant item in the cross - search
+        """
+        search_string = self.format_spotify_search_string(self.title)
+        search_response = None
+        attempt_successful = False
+
+        while not attempt_successful:
+            try:
+                search_response = self.service.search(search_string, limit=1, type='track')
+                attempt_successful = True
+            except SpotifyException:
+                self.service = GetSpotifyService()
+
+        if 'tracks' in search_response:
+            if len(search_response['tracks']['items']) > 0:
+                found_track = search_response['tracks']['items'][0]
+                self.id = found_track['id']
+                self.title = '{} {} {}'.format(found_track['artists'][0]['name'], '-', found_track['name'])
+                return True
+
+        return False
+
+    def format_link(self):
+        self.link = 'https://open.spotify.com/track/{}'.format(self.id)
+
+    def get_full_track_info(self):
+        track_info = None
+        attempt_successful = False
+        while not attempt_successful:
+            try:
+                track_info = self.service.track(self.id)
+                attempt_successful = True
+            except SpotifyException:
+                self.service = GetSpotifyService()
+        print(track_info)
+
     def __init__(self, track_id, track_title, username, service, playlist='DEFAULT'):
         super().__init__(track_id, track_title, username, service, playlist)
-        self.link = 'https://open.spotify.com/track/{}'.format(self.id)
+        if track_id is not None:
+            self.format_link()
+            self.get_full_track_info()
         self.service_name = 'Spotify'
 
     def get_own_current_playlist(self):
-        return self.tracks_in_playlist(self.playlist_id)
-
-    def tracks_in_playlist(self, playlist):
         """
         Retrieves list of all tracks currently present in the Spotify playlist. Used to prevent attempting to add 
         duplicates.
@@ -163,7 +221,7 @@ class SpotifyTrack(Track):
         while not attempt_successful:
             try:
                 playlist_tracks = \
-                self.service.user_playlist('strongohench', playlist, fields='tracks, next')[
+                self.service.user_playlist('strongohench', self.playlist_id, fields='tracks, next')[
                     'tracks']
                 tracks = playlist_tracks['items']
                 for track in tracks:
@@ -180,27 +238,11 @@ class SpotifyTrack(Track):
                 self.service = GetSpotifyService()
         return track_list
 
-    def add_self_to_own_service(self):#, track, event, playlist='3RBeSdvsH57tbsqNZHS44A'):
+    def add_self_to_own_service(self):
         """
         Adds the supplied track to the playlist (if not already present).
         """
-        attempt_successful = False
-        existing_tracks = []
-        while not attempt_successful:
-            try:
-                existing_tracks = self.tracks_in_playlist(self.playlist_id)
-                attempt_successful = True
-            except SpotifyException:
-                self.service = GetSpotifyService()
-        if self.id not in existing_tracks:
-            self.service.user_playlist_add_tracks('strongohench', self.playlist_id, [self.id])
-            return True
-            #self.logger.song_added(track, playlist)
-            #self.mark_message_as_added_to_playlist(event.channel, event.message.timestamp, 'spot')
-        else:
-            return False
-            #self.mark_song_as_already_existing(event.channel, event.message.timestamp, 'spot')
-            #self.logger.song_already_exists(track, playlist)
+        self.service.user_playlist_add_tracks('strongohench', self.playlist_id, [self.id])
 
 
 class GooglePlayTrack(Track):

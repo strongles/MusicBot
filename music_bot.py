@@ -67,39 +67,6 @@ class MusicBot:
         self.logger.failed_to_find_relevant_youtube_video(track.title)
         return None
 
-    @staticmethod
-    def format_spotify_search_string(search_string):
-        """
-        Strip out anything between square brackets, as it's usually shite.
-        Clear out any sets of parentheses which have certain keywords in to avoid fouling the Spotify search
-        (But not clear everything in brackets, due to some tracks featuring other artists etc)
-        """
-        search_string = search_string.lower()
-        search_string = regex_substitute(r' *\[[^)]*\] *', '', search_string)
-        search_string = regex_substitute(r'\(.*official.*\)', '', search_string)
-        search_string = regex_substitute(r'\(.*lyric.*\)', '', search_string)
-        search_string = regex_substitute(r'\(.*new.*\)', '', search_string)
-        return search_string
-
-    def search_spotify_for_youtube_video(self, video):
-        """
-        Performs cross-searching of Spotify when the user has supplied a Youtube link
-        """
-        search_string = self.format_spotify_search_string(video.title)
-        search_response = self.spotify_service.search(search_string, limit=1, type='track')
-        search_response = search_response
-        if 'tracks' in search_response:
-            if len(search_response['tracks']['items']) > 0:
-                found_track = search_response['tracks']['items'][0]
-                return SpotifyTrack(found_track['id'], found_track['artists'][0]['name'] + ' - ' + found_track['name'],
-                                    video.added_by)
-            else:
-                self.logger.failed_to_find_relevant_spotify_track(video.title)
-                return None
-        else:
-            self.logger.failed_to_find_relevant_spotify_track(video.title)
-            return None
-
     def api_call(self, *args, **kwargs):
         """
         Wrapper function to allow for cleaner access to the Slack service's API methods
