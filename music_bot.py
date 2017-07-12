@@ -1,3 +1,7 @@
+from httplib2 import Http
+from oauth2client.client import flow_from_clientsecrets, Storage
+from oauth2client.tools import run_flow
+from googleapiclient.discovery import build
 from slackclient import SlackClient
 from auth_data import SpotifyAuthData, PlayLoginData
 from helpers import run_once
@@ -5,16 +9,17 @@ from re import sub as regex_substitute
 from track_types import SpotifyTrack, YoutubeVideo, GooglePlayTrack
 from spotipy.client import SpotifyException
 from slack_objects import SlackEvent
-from os import listdir
+from os import listdir, path
+import sys
 from websocket import WebSocketConnectionClosedException
 from spotipy import Spotify, util
 from event_logger import Logger
-from gmusicapi import MobileClient
+from gmusicapi import Mobileclient
 
 
 class MusicBot:
     """
-    The actual Bot itself, this class handles all of the computation and decision making involved in the MusicBot 
+    The actual Bot itself, this class handles all of the computation and decision making involved in the MusicBot
     functionality.
     """
 
@@ -24,6 +29,9 @@ class MusicBot:
         Performs a Spotify cross-search and playlist add for each item currently in the YouTube playlist. Catch-up 
         functionality seeing as Spotify support was implemented later. Bit filthy and nasty, but excusable for a 
         single-use thing.
+        :param yt_playlist: The source YouTube playlist from which to acquire tracks to add
+        :param spot_playlist: The destination Spotify playlist to which to add the tracks cross-searched from YouTube
+        :return: None
         """
         query_request = self.youtube_service.playlistItems().list(
             part="snippet", playlistId=yt_playlist, maxResults=50
@@ -51,31 +59,20 @@ class MusicBot:
                 self.spotify_service.user_playlist_add_tracks('strongohench', spot_playlist, [track.id])
                 self.logger.song_added(track, spot_playlist)
 
-    def search_youtube_for_spotify_track(self, track):
-        """
-        Performs cross-searching of Youtube when the user has supplied a Spotify link
-        """
-        search_response = self.youtube_service.search().list(
-            q=track.title,
-            part='id,snippet',
-            maxResults=10
-        ).execute()
-
-        for search_result in search_response.get('items', []):
-            if search_result['id']['kind'] == 'youtube#video':
-                return YoutubeVideo(search_result['id']['videoId'], search_result['snippet']['title'], track.added_by)
-        self.logger.failed_to_find_relevant_youtube_video(track.title)
-        return None
-
     def api_call(self, *args, **kwargs):
         """
         Wrapper function to allow for cleaner access to the Slack service's API methods
+        :param args: Arguments to pass through to the api call
+        :param kwargs: Keyword arguments to pass through to the api call
+        :return: The result of the api call that the passed parameters have triggered
         """
         return self.slack_service.api_call(*args, **kwargs)
 
     def get_username(self, user_id):
         """
         Uses the Slack API to retrieve the username of a given user when provided with their Slack User ID
+        :param user_id: The unique Slack ID of the user in question
+        :return: String value of the user's name
         """
         user_info = self.api_call('users.info', user=user_id)
         if user_info is not None:
@@ -84,6 +81,10 @@ class MusicBot:
     def add_reaction(self, channel, timestamp, reaction_name):
         """
         Uses the Slack API to add a reaction to a given message
+        :param channel: The channel in which the message to add the reaction to is located
+        :param timestamp: Timestamp used to identify the message to which the reaction is to be added
+        :param reaction_name: The emoji name to add to the message as a reaction. Custom emojis supported in this.
+        :return: None
         """
         self.api_call('reactions.add', name=reaction_name, timestamp=timestamp, channel=channel)
         pass
@@ -92,6 +93,10 @@ class MusicBot:
         """
         Adds a reaction to the message that contained the submitted content. Called upon success of the addition 
         functions.
+        :param channel: The channel in which the message to add the reaction to is located
+        :param timestamp: Timestamp used to identify the message to which the reaction is to be added
+        :param service: Name of the service whose playlist the track has been added to
+        :return: None
         """
         self.add_reaction(channel, timestamp, service + '_added')
         pass
@@ -100,6 +105,10 @@ class MusicBot:
         """
         Adds a reaction to the message that contained the submitted content. Called when the submitted song already 
         exists within the relevant playlist
+        :param channel: The channel in which the message to add the reaction to is located
+        :param timestamp: Timestamp used to identify the message to which the reaction is to be added
+        :param service: Name of the service in which the track has found to already exist within the playlist
+        :return: None
         """
         self.add_reaction(channel, timestamp, service + '_exists')
         pass
@@ -108,6 +117,10 @@ class MusicBot:
         """
         Adds a reaction to the message that contained the submitted content. Called when the song is unable to be found 
         in the cross-search functionality.
+        :param channel: The channel in which the message to add the reaction to is located
+        :param timestamp: Timestamp used to identify the message to which the reaction is to be added
+        :param service: Name of the service which has failed the search to add the appropriate reaction
+        :return: None
         """
         self.add_reaction(channel, timestamp, service + '_not_found')
         pass
@@ -116,6 +129,8 @@ class MusicBot:
         """
         Wrapper function to allow for clean access to the API to post a message to a channel. Defaults to the MusicClub 
         channel if no other is provided.
+        :param message: Message text to be posted
+        :param: Channel in which the message is to be posted. Defaults to the one held on the bot.
         """
         if channel is not None:
             self.api_call('chat.postMessage', as_user=True, channel=channel, text=message)
@@ -123,11 +138,22 @@ class MusicBot:
             self.api_call('chat.postMessage', as_user=True, channel=self.default_channel, text=message)
 
     def post_reply(self, message_text, channel, timestamp):
+        """
+        Post a message as a thread response to an existing message
+        :param message_text: The message text to be posted
+        :param channel: The channel in which this message is to be posted
+        :param timestamp: The timestamp through which to identify the message to which this will be a response
+        :return: None
+        """
         self.api_call('chat.postMessage', as_user=True, channel=channel, thread_ts=timestamp, text=message_text)
 
     def post_cross_search_failure(self, service, title, channel):
         """
         Informs the user when a cross-search for the content submitted has been unsuccessful.
+        :param service: Name of service that has been used to attempt to search
+        :param title: Track title that has been searched for using the service
+        :param channel: The channel this message is to be posted to
+        :return: None
         """
         self.api_call('chat.postMessage', as_user=True, channel=channel,
                       text='Cross searching on ' + service + ' failed to find ' + title)
@@ -138,6 +164,8 @@ class MusicBot:
         Posts the supplied text within the direct message channel. 
         Intended for use when prototyping new functionality and the standard post_message function would either spam 
         the usual channel or would give away surprise new functionality.
+        :param message: String message to be posted
+        :return: None
         """
         get_channel_response = self.api_call('im.open', user='U1452LVK4')
         channel_id = get_channel_response['channel']['id']
@@ -145,13 +173,18 @@ class MusicBot:
 
     def log_event(self, event):
         """
-        Logs the received JSON event string to file."""
+        Logs the received JSON event string to file.
+        :param event: The source inbound Slack event JSON message
+        :return: None
+        """
         self.logger.log_event_to_file(event)
 
     def scan_for_youtube_video(self, event):
         """
         Deprecated function based on the old string manipulation approach used to analyse an incoming event and 
         ascertain if it was of the correct type (Youtube link) and if so extract the relevant data to be dealt with.
+        :param event: The source inbound Slack event
+        :return: A track ID, should it be present in the event data
         """
         if 'type' in event:
             if event['type'] == 'message' and 'message' in event and 'attachments' in event['message']:
@@ -185,6 +218,9 @@ class MusicBot:
     def print_spotify_tracklist(self, channel, playlist=None):
         """
         Prints the current content of the Spotify playlist to the channel provided as a code snippet
+        :param channel: The channel to be posted to
+        :param playlist: The playlist for which the track listing is to be printed. Defaults to the one held on the bot.
+        :return: None
         """
         if playlist is None:
             playlist = self.spotify_playlist
@@ -228,7 +264,12 @@ class MusicBot:
         pass
 
     def print_youtube_tracklist(self, channel, playlist=None):
-        """Prints the current content of the YouTube playlist to the channel provided as a code snippet"""
+        """
+        Prints the current content of the YouTube playlist to the channel provided as a code snippet
+        :param channel: The channel to which the message should be printed
+        :param playlist: The playlist this is to be added to. Defaults to the one held as a member variable on the bot
+        :return: None
+        """
         if playlist is None:
             playlist = self.youtube_playlist
             pass
@@ -272,59 +313,29 @@ class MusicBot:
         """
         Object-based approach used to analyse an incoming event and determine whether or not it contains content to be 
         added to our playlists, and extracting this information if found.
+        :param event_json: The json message representing the inbound event
+        :return: A Track object, under the circumstances that the event holds the relevant information to create one
         """
         event = SlackEvent(event_json)
-        if event.type is not None:
-            if event.type == 'message' and event.message is not None:
-                if event.message.attachments is not None and not event.message.is_reply:
-                    self.log_event(event_json)
-                    for attachment in event.message.attachments:
-                        if attachment.service_name is not None:
-                            if attachment.service_name in self.track_type_map and attachment.id is not None:
-                                relevant_track_type = self.track_type_map[attachment.service_name]
-                                return relevant_track_type(attachment.id,
-                                                           attachment.title,
-                                                           self.get_username(event.message.user),
-                                                           self.service_map[relevant_track_type])
-                            '''
-                            elif attachment.service_name == 'Spotify' and attachment.id is not None:
-                                return SpotifyTrack(attachment.id, attachment.title,
-                                                    self.get_username(event.message.user))
-                            '''
-
-
-
-    '''
-    def add_video_to_playlist(self, video, event, playlist='PLDQ8Lg2Wj2nGKAL_7nLp8ELghxJgxVdRM'):
-        """
-        Adds the supplied video to the playlist (if not already present).
-        """
-        existing_videos = self.videos_in_playlist(playlist)
-        if video.id not in existing_videos:
-            self.youtube_service.playlistItems().insert(
-                part='snippet',
-                body={
-                    'snippet': {
-                        'playlistId': playlist,
-                        'resourceId': {
-                            'kind': 'youtube#video',
-                            'videoId': video.id
-                        }
-                    }
-                }
-            ).execute()
-            self.logger.song_added(video, playlist)
-            self.mark_message_as_added_to_playlist(event.channel, event.message.timestamp, 'yt')
-        else:
-            self.mark_song_as_already_existing(event.channel, event.message.timestamp, 'yt')
-            self.logger.song_already_exists(video, playlist)
-    '''
+        if event.type is not None and event.type == 'message' and event.message is not None:
+            if event.message.attachments is not None and not event.message.is_reply:
+                self.log_event(event_json)
+                for attachment in event.message.attachments:
+                    if attachment.service_name is not None:
+                        if attachment.service_name in self.track_type_map and attachment.id is not None:
+                            relevant_track_type = self.track_type_map[attachment.service_name]
+                            return relevant_track_type(attachment.id,
+                                                       attachment.title,
+                                                       self.get_username(event.message.user),
+                                                       self.service_map[relevant_track_type])
 
 
     def print_newest_unprinted_changelog(self, path):
         """
-        Prints the changelog for the most recent version to the channel to inform the user of all currently available 
+        Prints the changelog for the most recent version to the channel to inform the user of all currently available
         functionality.
+        :param path: Source path for locating changelogs
+        :return: None
         """
         log_list = listdir(path)
         if len(log_list):
@@ -344,43 +355,41 @@ class MusicBot:
                     writing_file.write('\nPRINTED')
 
     def reply_with_cross_searched_link(self, event, track):
+        """
+        Posts a track found by searching one of the other services as a thread reply to the original link.
+        :param event: The message event containing the orignal link
+        :param track: The track that has been added
+        :return: None
+        """
         self.post_reply(track.link, event.channel, event.message.timestamp)
-        # self.api_call('chat.postMessage', thread_ts=event.message.timestamp, channel=event.channel, text=track.link)
 
     def treat_song(self, found_song, source_event):
-        '''
-        if isinstance(found_song, YoutubeVideo):
-            self.add_video_to_playlist(found_song, source_event)
-            attempt_successful = False
-            track = None
-            while not attempt_successful:
-                try:
-                    track = self.search_spotify_for_youtube_video(found_song)
-                    attempt_successful = True
-                except SpotifyException:
-                    self.spotify_service = self.get_spotify_service(self.spotify_auth_data)
-            if track is not None:
-                self.add_track_to_playlist(track, source_event)
-                self.reply_with_cross_searched_link(source_event, track)
-            else:
-                pass
-                #self.mark_found_song_as_unable_to_be_found(source_event.channel,
-                 #                                    source_event.message.timestamp, 'yt')
-        elif isinstance(found_song, SpotifyTrack):
-            self.add_track_to_playlist(found_song, source_event)
-            video = self.search_youtube_for_spotify_track(found_song)
-            if video is not None:
-                self.add_video_to_playlist(video, source_event)
-                self.reply_with_cross_searched_link(source_event, video)
+        """
+        Process the song that has been found: add it to the playlist for its' own service, as well as cross-searching to
+        add to the other supported services
+        :param found_song: The song object created from the Slack event data
+        :param source_event: The source Slack event JSON
+        :return: None
+        """
 
-            else:
-                self.mark_song_as_unable_to_be_found(source_event.channel,
-                                                     source_event.message.timestamp, 'spot')
-        else:
-            self.logger.unrecognised_service('Unknown')
-        '''
+        found_song.add_self_to_own_playlist()
+        self.mark_message_as_added_to_playlist(self.default_channel, source_event.message.timestamp, found_song.service_name.lower())
 
-        found_song.add_self_to_own_service()
+        type_list = []
+
+        for track_type in self.track_type_map:
+            if track_type != found_song.service_name:
+                type_list.append(self.track_type_map[track_type])
+
+        cross_search_tracks = []
+
+        for track_type in type_list:
+            cross_search_tracks.append(track_type(None, found_song.title, found_song.added_by, self.service_map[track_type]))
+
+        for track in cross_search_tracks:
+            track.add_self_to_own_playlist()
+            self.reply_with_cross_searched_link(source_event, track)
+            self.mark_message_as_added_to_playlist(self.default_channel, source_event.message.timestamp, track.service_name.lower())
 
 
     def start(self):
@@ -440,6 +449,9 @@ class MusicBot:
         """
         Used at initialisation to create an authenticated Spotify service for subsequent use, kept as a member variable 
         on the bot itself.
+        Also used during runtime if the service times out to reacquire.
+        :param spotify_auth_data: Instance of a SpotifyAuthData containing login information for acquisition of the Spotify service
+        :return: The authenticated Spotify service for use in relevant API calls
         """
 
         token = util.prompt_for_user_token(spotify_auth_data.username,
@@ -454,20 +466,48 @@ class MusicBot:
 
     @staticmethod
     def get_play_service(login_information):
-        play_api = MobileClient()
-        if play_api.login(login_information.username, login_information.password, MobileClient.FROM_MAC_ADDRESS)
+        """
+        Used to obtain an authenticated Google Play Music service for use in API calls
+        :param login_information: PlayLoginData object containing login information to authenticate as the correct user
+        :return: Authenticated service object
+        """
+        play_api = Mobileclient()
+        if play_api.login(login_information.username, login_information.password, Mobileclient.FROM_MAC_ADDRESS):
             return play_api
         else:
-            raise Exception('Unable to acquire Google Play Music servi')
+            raise Exception('Unable to acquire Google Play Music service')
+
+    @staticmethod
+    def get_youtube_service(client_secrets):
+        """
+        Used to create an authenticated Youtube service for subsequent use, passed in to the Bot's constructor to be kept
+        as a member variable. For an unknown reason the authentication process fails when placed in the helpers.py file, or
+        this would be treated in the same way as the Spotify service creation.
+        """
+        flow = flow_from_clientsecrets(client_secrets, scope='https://www.googleapis.com/auth/youtube',
+                                       message='Youtube fail')
+        filename = 'main.py'  # (sys.argv[0].split('/'))[-1]
+        storage = Storage(path.abspath(path.join(path.dirname(__file__),
+                                                 "client_secrets\{}-oauth2.json".format(filename))))
+        credentials = storage.get()
+
+        if credentials is None or credentials.invalid:
+            credentials = run_flow(flow, storage)
+
+        sys.modules['win32file'] = None
+
+        return build('youtube', 'v3', http=credentials.authorize(Http()))
 
 
+    #def __init__(self, token, youtube_auth_path, spotify_auth_path, play_login_file):
     def __init__(self, token, youtube, spotify_auth_path, play_login_file):
         self.slack_service = SlackClient(token)
+        #self.youtube_service = self.get_youtube_service(youtube_auth_path)  # youtube
         self.youtube_service = youtube
         self.spotify_auth_data = SpotifyAuthData(spotify_auth_path)
         self.play_auth_data = PlayLoginData(play_login_file)
         self.spotify_service = self.get_spotify_service(self.spotify_auth_data)
-        self.play_service = self.get_play_service(self.play_auth_data)
+        #self.play_service = None  # self.get_play_service(self.play_auth_data)
         self.default_channel = 'C1WV7ME66'
         self.default_changelog_location = 'changelogs/'
         self.logger = Logger()
@@ -475,11 +515,11 @@ class MusicBot:
         self.spotify_playlist = '3RBeSdvsH57tbsqNZHS44A'
         self.track_type_map = {
             'Spotify': SpotifyTrack,
-            'YouTube': YoutubeVideo,
-            'play.google.com': GooglePlayTrack
+            'YouTube': YoutubeVideo#,
+            #'play.google.com': GooglePlayTrack
         }
         self.service_map = {
             SpotifyTrack: self.spotify_service,
-            YoutubeVideo: self.youtube_service,
-            GooglePlayTrack: self.play_service
+            YoutubeVideo: self.youtube_service#,
+            #GooglePlayTrack: self.play_service
         }

@@ -58,15 +58,15 @@ if __name__ == '__main__':
     parser = ArgumentParser(
         description='Slack MusicBot to automatically aggregate playlists based on user-submitted tracks')
 
-    parser.add_argument('-cs', '--client_secrets', help='"Client Secrets" filepath containing YouTube auth information',
+    parser.add_argument('-ya', '--youtube_auth', help='"Client Secrets" filepath containing YouTube auth information',
                         required=True)
     parser.add_argument('-s', '--slack_token', help='Slack Auth Token', required=True)
     parser.add_argument('-sa', '--spotify_auth', help='Spotify authentication information filepath', required=True)
-    parser.add_argument('-pa', '--play_auth', help='Google Play Music login information')
+    parser.add_argument('-pa', '--play_auth', help='Google Play Music login information', required=True)
 
     args = parser.parse_args()
 
-    client_secrets_file = args.client_secrets
+    youtube_auth_path = args.youtube_auth
     spotify_auth_path = args.spotify_auth
     slack_token = args.slack_token
     play_login_file = args.play_auth
@@ -75,7 +75,8 @@ if __name__ == '__main__':
 
     while carry_on:
         try:
-            slack = MusicBot(slack_token, get_authenticated_service(client_secrets_file), spotify_auth_path, play_login_file)
+            slack = MusicBot(slack_token, get_authenticated_service(youtube_auth_path), spotify_auth_path, play_login_file)
+            #slack = MusicBot(slack_token, youtube_auth_path, spotify_auth_path, play_login_file)
             slack.start()
         except ConnectionResetError:
             print('Thing dun broke. Trying it again.')

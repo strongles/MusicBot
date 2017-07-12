@@ -61,14 +61,6 @@ class YoutubeVideo(Track):
     submission or parsed from a search result
     """
 
-    def __init__(self, video_id, video_title, username, service, playlist='DEFAULT'):
-        # TODO: Make playlist IDs gettable from a config file / create a playlist with a set name if doesn't exist to
-        # add to ad infinitum
-        super().__init__(video_id, video_title, username, service, playlist)
-        if video_id is not None:
-            self.format_link()
-        self.service_name = 'YouTube'
-
     def format_link(self):
         self.link = 'https://www.youtube.com/watch?v={}'.format(self.id)
 
@@ -96,7 +88,6 @@ class YoutubeVideo(Track):
             )
         return video_list
 
-    @property
     def search_own_service_for_track_title(self):
         """
         Performs a search of the YouTube service based on the track information held in the local variables
@@ -141,6 +132,14 @@ class YoutubeVideo(Track):
         }
 
         self.service.playlistItems().insert(part='snippet', body=add_action_body).execute()
+
+    def __init__(self, video_id, video_title, username, service, playlist='PLDQ8Lg2Wj2nGKAL_7nLp8ELghxJgxVdRM'):
+        # TODO: Make playlist IDs gettable from a config file / create a playlist with a set name if doesn't exist to
+        # add to ad infinitum
+        super().__init__(video_id, video_title, username, service, playlist)
+        if video_id is not None:
+            self.format_link()
+        self.service_name = 'YouTube'
 
 
 class SpotifyTrack(Track):
@@ -203,7 +202,7 @@ class SpotifyTrack(Track):
                 self.service = GetSpotifyService()
         print(track_info)
 
-    def __init__(self, track_id, track_title, username, service, playlist='DEFAULT'):
+    def __init__(self, track_id, track_title, username, service, playlist='3RBeSdvsH57tbsqNZHS44A'):
         super().__init__(track_id, track_title, username, service, playlist)
         if track_id is not None:
             self.format_link()
